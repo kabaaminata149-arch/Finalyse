@@ -39,37 +39,6 @@ Traitement local via Ollama — 100% sécurisé, aucune donnée envoyée à des 
 - Tesseract OCR ([télécharger](https://github.com/UB-Mannheim/tesseract/wiki))
 - Ollama ([télécharger](https://ollama.ai)) — optionnel
 
-### Installation
-
-```bash
-pip install -r backend/requirements.txt
-pip install PyQt6
-```
-
-### Configuration
-
-```bash
-cp backend/.env.example backend/.env
-# Éditez backend/.env avec vos paramètres
-```
-
-### Lancement
-
-```bash
-python GO.py
-```
-
----
-
-## Identifiants par défaut
-
-```
-Email    : admin@finalyse.com
-Mot de passe : admin123
-```
-
----
-
 ## Architecture
 
 ```
