@@ -1,41 +1,72 @@
-# Finalyse — Intelligent Invoice Analysis Platform
+# Finalyse — Analyse Intelligente de Factures
 
-AI-powered invoice analysis SaaS application.
-Local AI processing via Ollama — 100% secure, no data sent to external servers.
+Application de bureau pour l'analyse automatique de factures par IA.  
+Traitement local via Ollama — 100% sécurisé, aucune donnée envoyée à des serveurs externes.
 
 ---
 
-## Quick Start
+## ⬇️ Télécharger et Installer
 
-### 1. Install backend dependencies
+### Windows (recommandé)
+
+**[📥 Télécharger Finalyse_Setup.exe](https://1drv.ms/u/c/8ca7329dbc513199/IQBA3KYvRwZUQpGwf5T5RjOQAWSFC_QCK6aAo4pHTVJ_u24)**
+
+1. Téléchargez `Finalyse_Setup.exe`
+2. Double-cliquez pour installer (aucun prérequis nécessaire)
+3. Lancez Finalyse depuis le raccourci sur le Bureau
+4. Au premier lancement, installez Tesseract OCR et Ollama si demandé
+
+> **Taille :** ~120 MB  
+> **Système requis :** Windows 10/11 64-bit
+
+---
+
+## Fonctionnalités
+
+- 📄 **Import de factures** — PDF, images (JPG, PNG)
+- 🤖 **Analyse IA automatique** — extraction des données (fournisseur, montant, TVA, date)
+- 📊 **Rapports financiers** — compte de résultat, flux de trésorerie, anomalies
+- 📧 **Export** — PDF, CSV, envoi par email
+- ☁️ **Sauvegarde cloud** — MongoDB Atlas (optionnel)
+- 💬 **Assistant IA** — chatbot financier intégré
+
+---
+
+## Lancer depuis le code source
+
+### Prérequis
+- Python 3.10+
+- Tesseract OCR ([télécharger](https://github.com/UB-Mannheim/tesseract/wiki))
+- Ollama ([télécharger](https://ollama.ai)) — optionnel
+
+### Installation
 
 ```bash
-cd backend
-pip install -r requirements.txt
-```
-
-### 2. Install frontend dependencies
-
-```bash
+pip install -r backend/requirements.txt
 pip install PyQt6
 ```
 
-### 3. Install Ollama (optional but recommended)
-
-Download from https://ollama.ai then run:
+### Configuration
 
 ```bash
-ollama pull mistral        # For text analysis
-ollama pull llava          # For vision/image analysis (recommended)
+cp backend/.env.example backend/.env
+# Éditez backend/.env avec vos paramètres
 ```
 
-### 4. Launch the application
+### Lancement
 
 ```bash
 python GO.py
 ```
 
-This starts the backend on port 8000 and opens the desktop UI.
+---
+
+## Identifiants par défaut
+
+```
+Email    : admin@finalyse.com
+Mot de passe : admin123
+```
 
 ---
 
@@ -43,110 +74,14 @@ This starts the backend on port 8000 and opens the desktop UI.
 
 ```
 Finalyse/
-├── GO.py                      # Main launcher
-├── backend/
-│   ├── main.py                # FastAPI application
-│   ├── config.py              # Centralised configuration
-│   ├── .env                   # Environment variables
-│   ├── requirements.txt
-│   ├── auth/
-│   │   └── jwt_handler.py     # JWT authentication
-│   ├── database/
-│   │   └── db.py              # SQLite thread-safe layer (WAL)
-│   ├── routes/
-│   │   ├── auth.py            # Register, login, password reset
-│   │   ├── factures.py        # Invoice upload and management
-│   │   ├── dossiers.py        # Folder management
-│   │   ├── dashboard.py       # Statistics
-│   │   ├── export.py          # CSV/PDF export
-│   │   └── chatbot.py         # AI assistant
-│   └── services/
-│       ├── processor.py       # Background AI processing pipeline
-│       ├── ollama.py          # Ollama API client
-│       └── export_service.py  # Export generation
-└── frontend/
-    ├── main.py                # PyQt6 application entry point
-    ├── api_client.py          # HTTP client
-    ├── theme.py               # Design system
-    ├── assets/
-    │   └── logo.png           # Application logo (replace with yours)
-    ├── pages/
-    │   ├── splash.py          # Loading screen
-    │   ├── login.py           # Authentication
-    │   ├── dashboard.py       # Main dashboard
-    │   ├── import_page.py     # Invoice import
-    │   ├── analyse.py         # AI analysis view
-    │   ├── rapports.py        # Reports and exports
-    │   ├── historique.py      # Invoice history
-    │   └── chatbot.py         # AI assistant chat
-    └── widgets/
-        └── sidebar.py         # Navigation sidebar
+├── GO.py                  # Lanceur principal
+├── backend/               # API FastAPI
+│   ├── main.py
+│   ├── routes/            # auth, factures, dashboard, export, chatbot
+│   ├── services/          # processor, ocr, vision, export_service
+│   └── database/          # SQLite WAL
+└── frontend/              # Interface PyQt6
+    ├── main.py
+    ├── pages/             # dashboard, import, rapports, historique
+    └── theme.py           # Design system
 ```
-
----
-
-## Key Design Decisions
-
-### Timeout Architecture
-Invoices are uploaded and immediately acknowledged (`{"status": "processing"}`).
-AI analysis (OCR, LLM, vision) runs in a **background thread pool** via FastAPI's
-`BackgroundTasks`. The HTTP event loop is never blocked.
-
-### Processing Pipeline
-1. **Ping Ollama** (3s timeout) — detect availability
-2. **Vision AI** (90s timeout) — analyze image directly with llava/moondream
-3. **Text LLM** (60s timeout) — analyze extracted text with mistral (PDF only)
-4. **Regex fallback** (< 1s) — always available, extracts key fields with patterns
-
-### Database
-SQLite with WAL (Write-Ahead Logging) mode and thread-local connections.
-Concurrent reads and writes without blocking between background processing and API requests.
-
-### PyQt6 Safety
-All pages use `self._alive` guards before updating UI from signals.
-Workers check aliveness before emitting to prevent `RuntimeError: wrapped C/C++ object deleted`.
-
----
-
-## Configuration (.env)
-
-```env
-JWT_SECRET=your-secret-key-here
-JWT_EXPIRE_H=24
-
-OLLAMA_URL=http://localhost:11434
-OLLAMA_MODEL=mistral
-OLLAMA_MODEL_VISION=llava
-
-OLLAMA_PING_TIMEOUT=3
-OLLAMA_TEXT_TIMEOUT=60
-OLLAMA_VISION_TIMEOUT=90
-
-MAX_MB=20
-```
-
----
-
-## Logo Integration
-
-Place your logo file at:
-```
-frontend/assets/logo.png
-```
-
-The logo is automatically displayed in:
-- Splash/loading screen
-- Login page (left panel)
-- Sidebar navigation header
-- Application window icon
-
----
-
-## Default Credentials
-
-```
-Email:    admin@finalyse.com
-Password: admin123
-```
-
-Change these immediately in production.
