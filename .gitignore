@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Base de données
+*.db
+*.db-shm
+*.db-wal
+
+# Fichiers uploadés et exports
+backend/uploads/
+backend/exports/
+
+# Environnement (contient mots de passe)
+backend/.env
+
+# Build / packaging
+installer/embed/
+installer/output/
+installer/build_tmp/
+installer/*.nsi
+build/
+dist/
+
+# Logs
+*.log
+crash.log
+export_error.log
+backup_crash.log
+
+# Préférences locales
+backup_prefs.json
+
+# IDE
+.vscode/
+.idea/
