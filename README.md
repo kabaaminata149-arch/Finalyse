@@ -23,12 +23,12 @@ Traitement local via Ollama — 100% sécurisé, aucune donnée envoyée à des 
 
 ## Fonctionnalités
 
-- 📄 **Import de factures** — PDF, images (JPG, PNG)
-- 🤖 **Analyse IA automatique** — extraction des données (fournisseur, montant, TVA, date)
-- 📊 **Rapports financiers** — compte de résultat, flux de trésorerie, anomalies
-- 📧 **Export** — PDF, CSV, envoi par email
-- ☁️ **Sauvegarde cloud** — MongoDB Atlas (optionnel)
-- 💬 **Assistant IA** — chatbot financier intégré
+-  **Import de factures** — PDF, images (JPG, PNG)
+-  **Analyse IA automatique** — extraction des données (fournisseur, montant, TVA, date)
+- **Rapports financiers** — compte de résultat, flux de trésorerie, anomalies
+-  **Export** — PDF, CSV, envoi par email
+-  **Sauvegarde cloud** — MongoDB Atlas (optionnel)
+-  **Assistant IA** — chatbot financier intégré
 
 ---
 
