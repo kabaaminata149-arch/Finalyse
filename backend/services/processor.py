@@ -1,5 +1,5 @@
 """
-services/processor.py — Finalyse v3
+services/processor.py — Finalyse
 Extraction réelle des données de factures :
   1. Regex sur le texte extrait (PDF natif ou OCR)
   2. Ollama si disponible (meilleure précision)
@@ -401,6 +401,7 @@ def _extract_ollama_sync(texte: str) -> Optional[dict]:
                 if r.status != 200:
                     return None
         except Exception:
+            
             return None
 
         prompt = f"""Analyse cette facture et extrais les informations en JSON.

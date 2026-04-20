@@ -9,7 +9,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot, QTimer
 from PyQt6.QtGui import QCursor
 from theme import C, PrimaryButton, shadow
 
-# Lire la configuration depuis les variables d'environnement (pas hardcodes)
+# Lire la configuration depuis les variables d'environnement 
 OLLAMA_URL   = os.getenv("OLLAMA_URL",   "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral")
 

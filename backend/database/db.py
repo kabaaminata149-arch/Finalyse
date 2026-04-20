@@ -373,7 +373,7 @@ def delete_facture(fid: int, uid: int) -> bool:
 
 # ═══════════════ DASHBOARD ═══════════════
 
-def get_stats(uid: int, annee: int = None, mois: int = None) -> dict:
+def get_stats(uid: int, annee: int = None, mois: int = None, dossier_id: int = None) -> dict:
     # Construire le filtre WHERE
     # On filtre sur annee/mois de la facture OU sur la date_facture extraite
     base_filter = "user_id=?"
@@ -394,6 +394,9 @@ def get_stats(uid: int, annee: int = None, mois: int = None) -> dict:
         mois_cond = " OR ".join(["date_facture LIKE ?"] * len(mois_patterns))
         base_filter += f" AND ({mois_cond})"
         base_params.extend([f"%{p}%" for p in mois_patterns])
+    if dossier_id:
+        base_filter += " AND dossier_id=?"
+        base_params.append(dossier_id)
 
     with session() as c:
         tot = dict(c.execute(

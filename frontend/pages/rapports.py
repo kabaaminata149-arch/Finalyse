@@ -16,14 +16,27 @@ from theme import C, PrimaryButton, SecondaryButton, SectionTitle, SubTitle, Sta
 class _StatsWorker(QThread):
     done  = pyqtSignal(dict)
     error = pyqtSignal(str)
-    def __init__(self, annee=None, mois=None):
+    def __init__(self, annee=None, mois=None, dossier_id=None):
         super().__init__()
         self._annee = annee
         self._mois  = mois
+        self._dossier_id = dossier_id
     def run(self):
         try:
             from api_client import api
-            self.done.emit(api.dashboard(annee=self._annee, mois=self._mois))
+            self.done.emit(api.dashboard(annee=self._annee, mois=self._mois, dossier_id=self._dossier_id))
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class _DossiersWorker(QThread):
+    done  = pyqtSignal(list)
+    error = pyqtSignal(str)
+    def run(self):
+        try:
+            from api_client import api
+            r = api.get_dossiers()
+            self.done.emit(r.get("dossiers", []))
         except Exception as e:
             self.error.emit(str(e))
 
@@ -33,14 +46,15 @@ class _ExportWorker(QThread):
     error = pyqtSignal(str)
 
     def __init__(self, mode, save_path, periode="", email_data=None,
-                 annee=0, mois=0):
+                 annee=0, mois=0, dossier_id=0):
         super().__init__()
-        self._mode    = mode
-        self._path    = save_path  # chemin absolu
-        self._periode = periode
-        self._email   = email_data
-        self._annee   = annee
-        self._mois    = mois
+        self._mode       = mode
+        self._path       = save_path  # chemin absolu
+        self._periode    = periode
+        self._email      = email_data
+        self._annee      = annee
+        self._mois       = mois
+        self._dossier_id = dossier_id
 
     def run(self):
         try:
@@ -59,6 +73,8 @@ class _ExportWorker(QThread):
                         params.append(f"annee={self._annee}")
                     if self._mois:
                         params.append(f"mois={self._mois}")
+                    if self._dossier_id:
+                        params.append(f"dossier_id={self._dossier_id}")
                     qs  = ("?" + "&".join(params)) if params else ""
                     url = f"http://127.0.0.1:8000/api/export/pdf{qs}"
 
@@ -80,10 +96,11 @@ class _ExportWorker(QThread):
             elif self._mode == "email" and self._email:
                 print(f"[WORKER] email vers {self._email.get('to_email')}")
                 r = api.send_report(
-                    to_email=self._email.get("to_email", ""),
-                    to_name =self._email.get("to_name",  ""),
-                    periode =self._periode,
-                    message =self._email.get("message",  ""),
+                    to_email   =self._email.get("to_email", ""),
+                    to_name    =self._email.get("to_name",  ""),
+                    periode    =self._periode,
+                    message    =self._email.get("message",  ""),
+                    dossier_id =self._dossier_id,
                 )
                 print(f"[WORKER] email result={r}")
                 self.done.emit("email", r.get("message", "Envoyé"))
@@ -369,6 +386,13 @@ class RapportsPage(QScrollArea):
                 border-radius:8px;padding:7px 12px;font-size:12px;font-weight:600;min-width:120px;}}
             QComboBox::drop-down{{border:none;width:20px;}}
         """
+        # Sélecteur Dossier
+        self._dossier_cb = QComboBox()
+        self._dossier_cb.addItem("Tous les dossiers", 0)
+        self._dossier_cb.setStyleSheet(_cb_sty)
+        self._dossier_cb.currentIndexChanged.connect(self._load)
+        hdr.addWidget(self._dossier_cb)
+
         # Sélecteur Mois
         self._mois_cb = QComboBox()
         self._mois_cb.addItem("Tous les mois", 0)
@@ -391,6 +415,12 @@ class RapportsPage(QScrollArea):
         self._annee_cb.currentIndexChanged.connect(self._load)
         hdr.addWidget(self._annee_cb)
 
+        root.addLayout(hdr)
+
+        # ── Boutons d'export (deuxième ligne) ─────────────────────────────
+        btns_row = QHBoxLayout(); btns_row.setSpacing(12)
+        btns_row.addStretch()
+
         for lbl, slot, primary in [
             ("Exporter CSV",  self._export_csv,  False),
             ("Rapport PDF",   self._export_pdf,  True),
@@ -399,9 +429,9 @@ class RapportsPage(QScrollArea):
             btn = PrimaryButton(lbl) if primary else SecondaryButton(lbl)
             btn.setFixedHeight(40); btn.clicked.connect(slot)
             if primary: shadow(btn, blur=12, y=3, color=C["primary"], alpha=25)
-            hdr.addWidget(btn)
+            btns_row.addWidget(btn)
 
-        root.addLayout(hdr)
+        root.addLayout(btns_row)
 
         # ── KPIs principaux ───────────────────────────────────────────────
         kpi_row = QHBoxLayout(); kpi_row.setSpacing(14)
@@ -451,15 +481,18 @@ class RapportsPage(QScrollArea):
 
         self.setWidget(c)
         self._load()
+        self._load_dossiers()
 
     # ── Chargement ────────────────────────────────────────────────────────
 
     def _get_periode(self):
-        """Retourne (annee, mois, label) selon les sélecteurs."""
-        mois  = self._mois_cb.currentData()   # 0 = tous
-        annee = self._annee_cb.currentData()  # 0 = toutes
-        mois_nom  = self._mois_cb.currentText()
-        annee_nom = self._annee_cb.currentText()
+        """Retourne (annee, mois, label, dossier_id) selon les sélecteurs."""
+        mois        = self._mois_cb.currentData()
+        annee       = self._annee_cb.currentData()
+        dossier_id  = self._dossier_cb.currentData()
+        mois_nom    = self._mois_cb.currentText()
+        annee_nom   = self._annee_cb.currentText()
+        dossier_nom = self._dossier_cb.currentText() if dossier_id else ""
         if annee and mois:
             label = f"{mois_nom} {annee_nom}"
         elif annee:
@@ -468,7 +501,9 @@ class RapportsPage(QScrollArea):
             label = mois_nom
         else:
             label = "Toutes les periodes"
-        return (annee if annee else None), (mois if mois else None), label
+        if dossier_id:
+            label = f"{dossier_nom.split('(')[0].strip()} — {label}"
+        return (annee if annee else None), (mois if mois else None), label, (dossier_id if dossier_id else None)
 
     def _load(self):
         if not self._alive: return
@@ -479,9 +514,34 @@ class RapportsPage(QScrollArea):
                 try: w.disconnect()
                 except Exception: pass
             self._ws.remove(w)
-        w = _StatsWorker(*self._get_periode()[:2])
+        annee, mois, label, dossier_id = self._get_periode()
+        w = _StatsWorker(annee=annee, mois=mois, dossier_id=dossier_id)
         w.done.connect(self._on_data); w.error.connect(lambda e: None)
         self._ws.append(w); w.start()
+
+    def _load_dossiers(self):
+        if not self._alive: return
+        w = _DossiersWorker()
+        w.done.connect(self._on_dossiers)
+        w.error.connect(lambda e: None)
+        self._ws.append(w); w.start()
+
+    @pyqtSlot(list)
+    def _on_dossiers(self, dossiers: list):
+        if not self._alive: return
+        current = self._dossier_cb.currentData()
+        self._dossier_cb.blockSignals(True)
+        while self._dossier_cb.count() > 1:
+            self._dossier_cb.removeItem(1)
+        for d in dossiers:
+            nom = d.get("nom", "")
+            nb  = d.get("nb_total", 0)
+            label = f"{nom}  ({nb})"
+            self._dossier_cb.addItem(label, d.get("id", 0))
+        idx = self._dossier_cb.findData(current)
+        if idx >= 0:
+            self._dossier_cb.setCurrentIndex(idx)
+        self._dossier_cb.blockSignals(False)
 
     @pyqtSlot(dict)
     def _on_data(self, stats: dict):
@@ -497,8 +557,8 @@ class RapportsPage(QScrollArea):
         per   = self._get_periode()[2]
 
         # Valeurs clés
-        dep_ht   = flux.get("depenses_ht", 0)
         dep_tva  = flux.get("depenses_tva", 0)
+        dep_ht   = flux.get("depenses_ht", 0)
         dep_ttc  = flux.get("depenses_ttc", 0)
         rec_ht   = flux.get("recettes_ht", 0)
         rec_tva  = flux.get("recettes_tva", 0)
@@ -769,16 +829,19 @@ class RapportsPage(QScrollArea):
         )
         if not path:
             return
-        self._set_msg("Export CSV en cours...", ok=True)
         w = _ExportWorker("csv", path)
         w.done.connect(self._on_export_done)
         w.error.connect(self._on_export_err)
         w.finished.connect(lambda: self._ws.remove(w) if w in self._ws else None)
-        self._ws.append(w); w.start()
+        self._ws.append(w)
+        w.start()
+        self._set_msg("Export CSV en cours...", ok=True)
 
     def _export_pdf(self):
         from datetime import datetime
         from PyQt6.QtWidgets import QFileDialog
+        annee, mois, periode, dossier_id = self._get_periode()
+        print(f"[PDF] dossier_id={dossier_id} annee={annee} mois={mois} periode={periode!r}")
         docs    = os.path.join(os.path.expanduser("~"), "Documents")
         ts      = datetime.now().strftime("%Y%m%d_%H%M%S")
         default = os.path.join(docs, f"finalyse_rapport_{ts}.pdf")
@@ -787,13 +850,13 @@ class RapportsPage(QScrollArea):
         )
         if not path:
             return
-        annee, mois, periode = self._get_periode()
-        self._set_msg("Génération du rapport en cours...", ok=True)
-        w = _ExportWorker("pdf", path, periode, annee=annee or 0, mois=mois or 0)
+        w = _ExportWorker("pdf", path, periode, annee=annee or 0, mois=mois or 0, dossier_id=dossier_id or 0)
         w.done.connect(self._on_export_done)
         w.error.connect(self._on_export_err)
         w.finished.connect(lambda: self._ws.remove(w) if w in self._ws else None)
-        self._ws.append(w); w.start()
+        self._ws.append(w)
+        w.start()
+        self._set_msg("Génération du rapport en cours...", ok=True)
 
     def _send_email(self):
         from api_client import api
@@ -809,14 +872,16 @@ class RapportsPage(QScrollArea):
         data = dial.result_data
         if not data:
             return
-        periode = self._get_periode()[2]
-        print(f"[EMAIL] lancement worker email={data.get('to_email')} periode={periode!r}")
-        self._set_msg("Envoi du rapport en cours...", ok=True)
-        w = _ExportWorker("email", "", periode=periode, email_data=data)
+        annee, mois, periode, dossier_id = self._get_periode()
+        print(f"[EMAIL] lancement worker email={data.get('to_email')} periode={periode!r} dossier_id={dossier_id}")
+        w = _ExportWorker("email", "", periode=periode, email_data=data,
+                          annee=annee or 0, mois=mois or 0, dossier_id=dossier_id or 0)
         w.done.connect(self._on_export_done)
         w.error.connect(self._on_export_err)
         w.finished.connect(lambda: self._ws.remove(w) if w in self._ws else None)
-        self._ws.append(w); w.start()
+        self._ws.append(w)
+        w.start()
+        self._set_msg("Envoi du rapport en cours...", ok=True)
 
     @pyqtSlot(str, str)
     def _on_export_done(self, typ: str, info: str):
@@ -860,7 +925,9 @@ class RapportsPage(QScrollArea):
             pass
 
     def refresh(self):
-        if self._alive: self._load()
+        if self._alive:
+            self._load_dossiers()
+            self._load()
 
     def closeEvent(self, e):
         self._alive = False; super().closeEvent(e)

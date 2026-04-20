@@ -219,11 +219,12 @@ class Client:
                          {"statut": statut}, timeout=10)
 
     # ── DASHBOARD ─────────────────────────────────────────────────────────
-    def dashboard(self, annee=None, mois=None) -> dict:
+    def dashboard(self, annee=None, mois=None, dossier_id=None) -> dict:
         url = "/api/dashboard"
         params = []
-        if annee: params.append(f"annee={annee}")
-        if mois:  params.append(f"mois={mois}")
+        if annee:      params.append(f"annee={annee}")
+        if mois:       params.append(f"mois={mois}")
+        if dossier_id: params.append(f"dossier_id={dossier_id}")
         if params: url += "?" + "&".join(params)
         return self._req("GET", url, timeout=20)
 
@@ -256,12 +257,14 @@ class Client:
         return self._download(url, save_path)
 
     def send_report(self, to_email: str, to_name: str = "",
-                    periode: str = "", message: str = "") -> dict:
+                    periode: str = "", message: str = "",
+                    dossier_id: int = 0) -> dict:
         return self._req("POST", "/api/export/send-report", {
-            "to_email": to_email,
-            "to_name":  to_name,
-            "periode":  periode,
-            "message":  message,
+            "to_email":   to_email,
+            "to_name":    to_name,
+            "periode":    periode,
+            "message":    message,
+            "dossier_id": dossier_id,
         }, timeout=120)
 
     def _download(self, path: str, save_path: str, timeout: int = 120) -> bool:

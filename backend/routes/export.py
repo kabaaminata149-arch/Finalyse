@@ -36,18 +36,29 @@ def csv_export(p: dict = Depends(current_user)):
 
 @router.get("/pdf")
 def pdf_export(
-    periode: str = Query("", description="Période ex: Mars 2024"),
-    annee:   int = Query(0),
-    mois:    int = Query(0),
-    p:       dict = Depends(current_user),
+    periode:    str = Query("", description="Période ex: Mars 2024"),
+    annee:      int = Query(0),
+    mois:       int = Query(0),
+    dossier_id: int = Query(0),
+    p:          dict = Depends(current_user),
 ):
-    # Filtrer les factures par période
-    annee_f = annee if annee else None
-    mois_f  = mois  if mois  else None
-    factures   = db.get_factures(p["uid"], limit=1000, annee=annee_f, mois=mois_f)
-    raw_stats  = db.get_stats(p["uid"], annee=annee_f, mois=mois_f)
-    user       = db.get_user_id(p["uid"])
+    annee_f   = annee      if annee      else None
+    mois_f    = mois       if mois       else None
+    dossier_f = dossier_id if dossier_id else None
+
+    # Récupérer les factures filtrées par dossier
+    factures  = db.get_factures(p["uid"], limit=1000, annee=annee_f, mois=mois_f, dossier_id=dossier_f)
+    raw_stats = db.get_stats(p["uid"], annee=annee_f, mois=mois_f, dossier_id=dossier_f)
+    user      = db.get_user_id(p["uid"])
+
+    # Nom de l'entreprise + nom du dossier pour l'en-tête du rapport
     entreprise = user.get("nom", "Mon Entreprise") if user else "Mon Entreprise"
+    if dossier_f:
+        dossier = db.get_dossier(dossier_f, p["uid"])
+        if dossier:
+            dossier_nom = dossier.get("nom", "")
+            entreprise  = f"{entreprise} — {dossier_nom}" if entreprise else dossier_nom
+
     flux = raw_stats.get("flux", {})
     stats = {
         "total_depenses":  flux.get("depenses_ttc", 0),
@@ -58,7 +69,14 @@ def pdf_export(
         "nb_traitees":     raw_stats.get("totaux", {}).get("nb_traites", 0),
         "nb_anomalies":    raw_stats.get("nb_anomalies", 0),
     }
-    path  = export_pdf(factures, p["uid"], periode, stats, entreprise)
+
+    import logging
+    logging.getLogger("export").info(
+        "[PDF] uid=%d dossier_id=%s nb_factures=%d dep=%.0f",
+        p["uid"], dossier_f, len(factures), stats["total_depenses"]
+    )
+
+    path = export_pdf(factures, p["uid"], periode, stats, entreprise)
 
     if not os.path.exists(path) or os.path.getsize(path) == 0:
         raise HTTPException(500, "Erreur lors de la génération du rapport.")
@@ -73,10 +91,11 @@ def pdf_export(
 
 
 class SendReportIn(BaseModel):
-    to_email: EmailStr
-    to_name:  str = ""
-    periode:  str = ""
-    message:  str = ""
+    to_email:   EmailStr
+    to_name:    str = ""
+    periode:    str = ""
+    message:    str = ""
+    dossier_id: int = 0
 
 
 @router.post("/send-report")
@@ -95,11 +114,17 @@ def send_report(data: SendReportIn, p: dict = Depends(current_user)):
         raise HTTPException(400,
             "SMTP non configuré. Ajoutez SMTP_USER et SMTP_PASS dans backend/.env puis redémarrez GO.py.")
 
-    # Générer le PDF
-    factures   = db.get_factures(p["uid"], limit=1000)
-    raw_stats  = db.get_stats(p["uid"])
+    # Générer le PDF filtré par dossier si sélectionné
+    dossier_f  = data.dossier_id if data.dossier_id else None
+    factures   = db.get_factures(p["uid"], limit=1000, dossier_id=dossier_f)
+    raw_stats  = db.get_stats(p["uid"], dossier_id=dossier_f)
     user       = db.get_user_id(p["uid"])
     entreprise = user.get("nom", "") if user else ""
+    if dossier_f:
+        dossier = db.get_dossier(dossier_f, p["uid"])
+        if dossier:
+            dossier_nom = dossier.get("nom", "")
+            entreprise  = f"{entreprise} — {dossier_nom}" if entreprise else dossier_nom
     flux = raw_stats.get("flux", {})
     stats_flat = {
         "total_depenses": flux.get("depenses_ttc", 0),

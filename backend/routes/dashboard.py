@@ -9,16 +9,17 @@ router = APIRouter(prefix="/api", tags=["Dashboard"])
 
 @router.get("/dashboard")
 def dashboard(
-    annee: Optional[int] = Query(None),
-    mois:  Optional[int] = Query(None),
+    annee:      Optional[int] = Query(None),
+    mois:       Optional[int] = Query(None),
+    dossier_id: Optional[int] = Query(None),
     p: dict = Depends(current_user)
 ):
-    return db.get_stats(p["uid"], annee=annee, mois=mois)
+    return db.get_stats(p["uid"], annee=annee, mois=mois, dossier_id=dossier_id)
 
 
 @router.get("/analyse/stats")
 def analyse_stats(p: dict = Depends(current_user)):
-    # BUG CORRIGE : limit=100 par défaut tronquait les stats au-delà de 100 factures
+    # BUG 
     factures = db.get_factures(p["uid"], limit=10000)
     import json
     traites  = [f for f in factures if f["statut"] == "traite"]
