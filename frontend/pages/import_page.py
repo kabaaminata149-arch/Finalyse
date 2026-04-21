@@ -204,6 +204,8 @@ class UploadWorker(QThread):
     file_upload  = pyqtSignal(str, bool, str, int)
     # (fid, statut, pct, meta)
     poll_update  = pyqtSignal(int, str, int, dict)
+    # progression globale réelle (done, total, current_file)
+    progress_update = pyqtSignal(int, int, str)
     # (nb_ok, nb_err)
     tout_fini    = pyqtSignal(int, int)
     error        = pyqtSignal(str)
@@ -218,11 +220,13 @@ class UploadWorker(QThread):
 
     def run(self):
         ok = err = 0
+        total = len(self._paths)
+        done  = 0
         try:
             from api_client import api, ApiError
             import time
 
-            # Creer le dossier avec le nom du lot
+            # Créer le dossier avec le nom du lot
             dossier_id = None
             if self._lot_nom:
                 try:
@@ -239,6 +243,7 @@ class UploadWorker(QThread):
             for path in self._paths:
                 nom = os.path.basename(path)
                 self.file_debut.emit(nom)
+                self.progress_update.emit(done, total, nom)
                 try:
                     r = api.upload(
                         [path],
@@ -250,17 +255,21 @@ class UploadWorker(QThread):
                     if r.get("importees", 0) > 0:
                         fid = r["factures"][0]["id"]
                         self.file_upload.emit(nom, True, "", fid)
-                        # Polling statut
+                        # Polling jusqu'à fin réelle
                         self._poll(api, nom, fid)
                         ok += 1
                     else:
                         errs = r.get("erreurs", [])
-                        msg  = errs[0].get("raison", "Refuse") if errs else "Refuse"
+                        msg  = errs[0].get("raison", "Refusé") if errs else "Refusé"
                         self.file_upload.emit(nom, False, msg, 0)
                         err += 1
                 except ApiError as e:
                     self.file_upload.emit(nom, False, str(e), 0)
                     err += 1
+
+                # Progression réelle : +1 fichier terminé
+                done += 1
+                self.progress_update.emit(done, total, "")
 
             self.tout_fini.emit(ok, err)
         except Exception as e:
@@ -272,9 +281,9 @@ class UploadWorker(QThread):
             try:
                 f  = api.get_facture(fid)
                 st = f.get("statut", "")
-                pct = 30 + min(step * 8, 65)  # progression estimée
+                # Progression interne du fichier (30% → 99% pendant le polling)
+                pct = 30 + min(step * 10, 69)
 
-                # Detecter non-facture via message analyse_ia
                 analyse = f.get("analyse_ia", "")
                 if st == "erreur" and "non reconnu" in analyse.lower():
                     st = "non_facture"
@@ -324,10 +333,11 @@ class ImportPage(QScrollArea):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._alive   = True
-        self._files   = []          # chemins selectionnes
-        self._fid_map = {}          # fid -> row index
-        self._workers = []
+        self._alive       = True
+        self._files       = []          # chemins selectionnes
+        self._is_analyzing = False      # verrou local — une seule analyse à la fois
+        self._fid_map     = {}          # fid -> row index
+        self._workers     = []
         self._lot_nom = ""
 
         self.setWidgetResizable(True)
@@ -585,13 +595,20 @@ class ImportPage(QScrollArea):
 
     def _ask_lot_then_send(self):
         if not self._files: return
+
+        # Vérifier connexion
         try:
             from api_client import api
             if not api.ok:
-                self._status.setText("Non connecte. Verifiez que GO.py est lance.")
+                self._status.setText("Non connecté. Vérifiez que GO.py est lancé.")
                 return
         except Exception:
             self._status.setText("Serveur inaccessible.")
+            return
+
+        # Verrou local — bloquer si une analyse est déjà en cours
+        if self._is_analyzing:
+            self._show_analyzing_popup()
             return
 
         # Popup nom du lot
@@ -600,7 +617,7 @@ class ImportPage(QScrollArea):
             return
         self._lot_nom = dlg.lot_nom
 
-        # Mettre a jour la colonne Lot dans le tableau
+        # Mettre à jour la colonne Lot dans le tableau
         for row in range(self._table.rowCount()):
             item = self._table.item(row, _COL_LOT)
             if item:
@@ -608,12 +625,53 @@ class ImportPage(QScrollArea):
 
         self._send()
 
+    def _show_analyzing_popup(self):
+        """Affiche un popup professionnel indiquant qu'une analyse est en cours."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Analyse en cours")
+        dlg.setFixedSize(420, 200)
+        dlg.setStyleSheet(f"background:{C['surface']};")
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(28, 24, 28, 24)
+        lay.setSpacing(16)
+
+        # Icône + titre
+        title = QLabel("Analyse en cours")
+        title.setStyleSheet(
+            f"font-size:16px;font-weight:800;color:{C['primary']};background:transparent;"
+        )
+        lay.addWidget(title)
+
+        msg = QLabel(
+            "Une analyse est déjà en cours.\n"
+            "Veuillez attendre sa fin avant de lancer une nouvelle analyse."
+        )
+        msg.setWordWrap(True)
+        msg.setStyleSheet(
+            f"font-size:13px;color:{C['on_surface']};background:{C['warn_bg']};"
+            f"border-radius:8px;padding:12px 14px;"
+        )
+        lay.addWidget(msg)
+
+        lay.addStretch()
+        btns = QHBoxLayout()
+        btns.addStretch()
+        ok_btn = PrimaryButton("Compris")
+        ok_btn.setFixedHeight(40)
+        ok_btn.clicked.connect(dlg.accept)
+        btns.addWidget(ok_btn)
+        lay.addLayout(btns)
+        dlg.exec()
+
     def _send(self):
         year  = self._year.value()
         month = self._month.currentData()
 
+        # Activer le verrou
+        self._is_analyzing = True
         self._send_btn.setEnabled(False)
         self._send_btn.setText("Analyse en cours...")
+        self._drop.browse_btn.setEnabled(False)  # bloquer aussi le parcourir
         n = len(self._files)
         self._global_prog.setMaximum(n)
         self._global_prog.setValue(0)
@@ -634,6 +692,7 @@ class ImportPage(QScrollArea):
         w.file_debut.connect(self._on_debut)
         w.file_upload.connect(self._on_upload)
         w.poll_update.connect(self._on_poll)
+        w.progress_update.connect(self._on_progress_update)
         w.tout_fini.connect(self._on_tout_fini)
         w.error.connect(self._on_err)
         self._workers.append(w); w.start()
@@ -699,14 +758,30 @@ class ImportPage(QScrollArea):
                 item = self._table.item(row, _COL_NOM)
                 if item: item.setToolTip(tip)
 
+    @pyqtSlot(int, int, str)
+    def _on_progress_update(self, done: int, total: int, current_file: str):
+        """Mise à jour de la barre de progression globale basée sur les fichiers réellement traités."""
+        if not self._alive: return
+        self._global_prog.setMaximum(total)
+        self._global_prog.setValue(done)
+        if current_file:
+            pct = int(done / total * 100) if total > 0 else 0
+            self._status.setText(
+                f"Analyse en cours : {done}/{total} fichiers ({pct}%) — {current_file}"
+            )
+
     @pyqtSlot(int, int)
     def _on_tout_fini(self, ok: int, err: int):
         if not self._alive: return
-        self._global_prog.hide()
-        self._send_btn.setEnabled(True)
+        # Libérer le verrou
+        self._is_analyzing = False
+        self._drop.browse_btn.setEnabled(True)
+        self._global_prog.setValue(self._global_prog.maximum())
+        QTimer.singleShot(800, self._global_prog.hide)
+        self._send_btn.setEnabled(len(self._files) > 0)
         self._send_btn.setText("Envoyer et analyser")
-        msg = f"Terminé — {ok} réussi(s)"
-        if err: msg += f"  |  {err} échec(s) ou non-facture(s)"
+        msg = f"Analyse terminée — {ok} réussi(s)"
+        if err: msg += f"  |  {err} échec(s)"
         self._status.setText(msg)
         kind = "success" if not err else "warning"
         Toast.show(self, msg, kind)
@@ -715,8 +790,11 @@ class ImportPage(QScrollArea):
     @pyqtSlot(str)
     def _on_err(self, msg: str):
         if not self._alive: return
+        # Libérer le verrou
+        self._is_analyzing = False
+        self._drop.browse_btn.setEnabled(True)
         self._global_prog.hide()
-        self._send_btn.setEnabled(True)
+        self._send_btn.setEnabled(len(self._files) > 0)
         self._send_btn.setText("Envoyer et analyser")
         self._status.setText(f"Erreur : {msg}")
         Toast.show(self, f"Erreur : {msg}", "error")

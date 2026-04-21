@@ -168,6 +168,17 @@ class Client:
         return self._req("DELETE", f"/api/dossiers/{did}", timeout=10)
 
     # ── FACTURES ──────────────────────────────────────────────────────────
+    def get_analysis_progress(self) -> dict:
+        """Retourne la progression de l'analyse en cours."""
+        return self._req("GET", "/api/factures/progress", timeout=5)
+
+    def is_analyzing(self) -> bool:
+        """Vérifie si une analyse est en cours."""
+        try:
+            return self._req("GET", "/api/factures/is-analyzing", timeout=3).get("analyzing", False)
+        except Exception:
+            return False
+
     def upload(self, paths: List[str],
                dossier_id:  Optional[int] = None,
                dossier_nom: Optional[str] = None,

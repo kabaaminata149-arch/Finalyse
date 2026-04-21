@@ -1,6 +1,6 @@
 """
 services/cloud_backup.py — Sauvegarde cloud MongoDB Atlas
-Sauvegarde automatique des données utilisateur (factures, dossiers, rapports)
+Sauvegarde des données utilisateur (factures, dossiers, rapports)
 vers MongoDB Atlas. Restauration complète sur un nouvel appareil.
 """
 import os, json, logging, hashlib
