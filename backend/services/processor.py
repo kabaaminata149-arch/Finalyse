@@ -47,6 +47,51 @@ def _read_pdf_text(path: str) -> str:
         return ""
 
 
+# ── Lecture Excel ─────────────────────────────────────────────────────────────
+
+def _read_excel_text(path: str) -> str:
+    """
+    Extrait le texte d'un fichier Excel (.xlsx ou .xls).
+    Convertit toutes les cellules non vides en texte brut ligne par ligne.
+    Chaque feuille est traitée, les colonnes séparées par des tabulations.
+    """
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        lines = []
+        for sheet in wb.worksheets:
+            lines.append(f"[Feuille: {sheet.title}]")
+            for row in sheet.iter_rows(values_only=True):
+                # Filtrer les lignes entièrement vides
+                cells = [str(c).strip() if c is not None else "" for c in row]
+                non_empty = [c for c in cells if c]
+                if non_empty:
+                    lines.append("\t".join(cells))
+        wb.close()
+        return _clean_ocr_text("\n".join(lines))
+    except Exception as e:
+        log.warning("[EXCEL] openpyxl failed: %s — tentative xlrd", e)
+
+    # Fallback pour .xls (ancien format)
+    try:
+        import xlrd
+        wb = xlrd.open_workbook(path)
+        lines = []
+        for sheet in wb.sheets():
+            lines.append(f"[Feuille: {sheet.name}]")
+            for row_idx in range(sheet.nrows):
+                cells = [str(sheet.cell_value(row_idx, col)).strip()
+                         for col in range(sheet.ncols)]
+                non_empty = [c for c in cells if c]
+                if non_empty:
+                    lines.append("\t".join(cells))
+        return _clean_ocr_text("\n".join(lines))
+    except Exception as e:
+        log.warning("[EXCEL] xlrd failed: %s", e)
+
+    return ""
+
+
 def _clean_ocr_text(text: str) -> str:
     """Nettoie le texte OCR — supprime les caractères parasites non-latins."""
     import unicodedata
@@ -539,10 +584,15 @@ def process_invoice(fid: int, file_path: str, expected_year: Optional[int] = Non
             raise FileNotFoundError(file_path)
 
         # ── 1. Extraire le texte ──────────────────────────────────────────
-        texte = _read_pdf_text(file_path)
+        # Excel → extraction directe des cellules
+        if ext in (".xlsx", ".xls"):
+            texte = _read_excel_text(file_path)
+            log.info("[PROC] #%d Excel: %d chars", fid, len(texte))
+        else:
+            texte = _read_pdf_text(file_path)
 
-        # OCR si PDF scanné ou image
-        if len(texte.strip()) < 50:
+        # OCR si PDF scanné ou image (pas pour Excel)
+        if ext not in (".xlsx", ".xls") and len(texte.strip()) < 50:
             log.info("[PROC] #%d texte court (%d chars) — tentative OCR", fid, len(texte))
             image_bytes = _to_image_bytes(file_path)
             image_bytes = _opencv_boost(image_bytes)
@@ -639,14 +689,50 @@ def process_invoice(fid: int, file_path: str, expected_year: Optional[int] = Non
         data["statut"]    = "traite"
         data["analyse_ia"] = detection.get("raison", "")
 
+        # ── 7. Persistance en base ────────────────────────────────────────
         db.update_facture(fid, data)
         log.info("[PROC] DONE #%d — ttc=%.2f fourn=%r anom=%d",
                  fid, data["montant_ttc"], data["fournisseur"], len(anomalies))
+
+        # ── 8. Suppression du fichier original (après persistance réussie) ─
+        _delete_file_after_processing(fid, file_path)
 
     except Exception as e:
         log.error("[PROC ERROR] #%d %s", fid, e)
         traceback.print_exc()
         db.update_facture(fid, {"statut": "erreur", "analyse_ia": str(e)[:200]})
+        # En cas d'erreur : fichier conservé pour diagnostic
+
+
+def _delete_file_after_processing(fid: int, chemin: str) -> bool:
+    """
+    Supprime le fichier original après traitement réussi.
+    La suppression n'a lieu QUE si la persistance DB a réussi.
+    Retourne True si supprimé, False si déjà absent.
+    """
+    if not chemin:
+        return False
+    try:
+        if os.path.exists(chemin):
+            os.remove(chemin)
+            log.info("[CLEANUP] Fichier supprimé : %s (fid=%d)", chemin, fid)
+            # Nettoyer le répertoire parent s'il est vide
+            parent = os.path.dirname(chemin)
+            try:
+                if os.path.isdir(parent) and not os.listdir(parent):
+                    os.rmdir(parent)
+            except Exception:
+                pass
+            # Mettre à jour le chemin en base
+            db.clear_file_path(fid)
+            return True
+        else:
+            log.debug("[CLEANUP] Fichier déjà absent : %s (fid=%d)", chemin, fid)
+            db.clear_file_path(fid)
+            return False
+    except Exception as e:
+        log.error("[CLEANUP] Erreur suppression fid=%d : %s", fid, e)
+        return False
 
 
 # ── Bilan financier ───────────────────────────────────────────────────────────

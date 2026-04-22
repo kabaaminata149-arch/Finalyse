@@ -25,7 +25,7 @@ DB_PATH = str(_DATA_DIR / "finalyse.db")
 UPLOAD_DIR  = str(_DATA_DIR / "uploads")
 EXPORT_DIR  = str(_DATA_DIR / "exports")
 MAX_MB      = int(os.getenv("MAX_MB", "20"))
-ALLOWED_EXT = {".pdf", ".png", ".jpg", ".jpeg"}
+ALLOWED_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".xlsx", ".xls"}
 
 # Ollama
 OLLAMA_URL   = os.getenv("OLLAMA_URL",   "http://localhost:11434")

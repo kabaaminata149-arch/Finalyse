@@ -277,11 +277,7 @@ def create_facture(uid: int, nom: str, chemin: str, taille: int,
 
 
 def update_facture(fid: int, data: dict):
-    """
-    BUG CORRIGE : annee et mois ne sont plus ecrasés ici.
-    Ils sont définis à la création et ne doivent jamais changer.
-    L'ancienne version les mettait à NULL car processor.py ne les passait pas.
-    """
+    
     now = _now()
     with session() as c:
         c.execute(
@@ -316,6 +312,15 @@ def set_statut(fid: int, statut: str):
         c.execute(
             "UPDATE factures SET statut=?,updated_at=? WHERE id=?",
             (statut, _now(), fid)
+        )
+
+
+def clear_file_path(fid: int):
+    """Efface le chemin du fichier après suppression — la facture reste en base."""
+    with session() as c:
+        c.execute(
+            "UPDATE factures SET chemin='',updated_at=? WHERE id=?",
+            (_now(), fid)
         )
 
 

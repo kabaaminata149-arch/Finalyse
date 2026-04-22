@@ -126,7 +126,7 @@ class DropZone(QFrame):
         lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.setSpacing(8)
 
-        self._icon = QLabel("[ PDF  PNG  JPG ]")
+        self._icon = QLabel("[ PDF  PNG  JPG  XLSX ]")
         self._icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._icon.setStyleSheet(
             f"font-size:11px;font-weight:700;color:{C['outline']};background:transparent;letter-spacing:3px;"
@@ -140,7 +140,7 @@ class DropZone(QFrame):
         )
         lay.addWidget(self._title)
 
-        sub = QLabel("PDF, PNG, JPG  —  plusieurs fichiers a la fois")
+        sub = QLabel("PDF, PNG, JPG, XLSX, XLS  —  plusieurs fichiers a la fois")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(
             f"font-size:12px;color:{C['on_surf_var']};background:transparent;"
@@ -181,7 +181,7 @@ class DropZone(QFrame):
             u.toLocalFile() for u in e.mimeData().urls()
             if os.path.isfile(u.toLocalFile())
             and os.path.splitext(u.toLocalFile())[1].lower()
-            in {".pdf", ".png", ".jpg", ".jpeg"}
+            in {".pdf", ".png", ".jpg", ".jpeg", ".xlsx", ".xls"}
         ]
         if paths:
             self._flash_ok()
@@ -558,7 +558,7 @@ class ImportPage(QScrollArea):
     def _on_browse(self):
         files, _ = QFileDialog.getOpenFileNames(
             self, "Selectionner des factures", "",
-            "Factures (*.pdf *.png *.jpg *.jpeg)",
+            "Factures (*.pdf *.png *.jpg *.jpeg *.xlsx *.xls)",
         )
         if files:
             self._add_files(files)
