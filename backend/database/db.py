@@ -66,12 +66,12 @@ CREATE TABLE IF NOT EXISTS dossiers (
 CREATE TABLE IF NOT EXISTS factures (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id         INTEGER NOT NULL,
-    dossier_id      INTEGER,
-    nom_fichier     TEXT DEFAULT '',
-    chemin          TEXT DEFAULT '',
-    taille          INTEGER DEFAULT 0,
+    dossier_id      INTEGER,            -- lot d'upload (obligatoire pour traçabilité)
+    nom_fichier     TEXT DEFAULT '',    -- nom original conservé pour affichage
+    taille          INTEGER DEFAULT 0,  -- taille en octets (info)
     annee           INTEGER NOT NULL DEFAULT 2024,
     mois            INTEGER,
+    -- Données extraites (source de vérité unique)
     fournisseur     TEXT DEFAULT '',
     date_facture    TEXT DEFAULT '',
     ref_facture     TEXT DEFAULT '',
@@ -80,11 +80,12 @@ CREATE TABLE IF NOT EXISTS factures (
     montant_ttc     REAL DEFAULT 0,
     categorie       TEXT DEFAULT 'Autres',
     type_facture    TEXT DEFAULT 'entrante',
+    -- Qualité IA
     statut          TEXT DEFAULT 'en_attente',
     anomalies       TEXT DEFAULT '[]',
     confiance       REAL DEFAULT 0,
-    texte_brut      TEXT DEFAULT '',
     analyse_ia      TEXT DEFAULT '',
+    -- Timestamps
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL,
     FOREIGN KEY(user_id)    REFERENCES users(id) ON DELETE CASCADE,
@@ -100,12 +101,43 @@ CREATE TABLE IF NOT EXISTS reset_tokens (
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+-- Index pour performances
 CREATE INDEX IF NOT EXISTS idx_f_user       ON factures(user_id);
 CREATE INDEX IF NOT EXISTS idx_f_dossier    ON factures(dossier_id);
 CREATE INDEX IF NOT EXISTS idx_f_statut     ON factures(statut);
 CREATE INDEX IF NOT EXISTS idx_f_annee      ON factures(annee);
 CREATE INDEX IF NOT EXISTS idx_f_annee_mois ON factures(annee, mois);
 CREATE INDEX IF NOT EXISTS idx_d_user       ON dossiers(user_id);
+
+-- Vue propre : factures avec nom du dossier (pour les rapports et l'historique)
+CREATE VIEW IF NOT EXISTS v_factures AS
+SELECT
+    f.id,
+    f.user_id,
+    f.dossier_id,
+    d.nom          AS dossier_nom,
+    d.annee        AS dossier_annee,
+    d.mois         AS dossier_mois,
+    f.nom_fichier,
+    f.taille,
+    f.annee,
+    f.mois,
+    f.fournisseur,
+    f.date_facture,
+    f.ref_facture,
+    f.montant_ht,
+    f.tva,
+    f.montant_ttc,
+    f.categorie,
+    f.type_facture,
+    f.statut,
+    f.anomalies,
+    f.confiance,
+    f.analyse_ia,
+    f.created_at,
+    f.updated_at
+FROM factures f
+LEFT JOIN dossiers d ON d.id = f.dossier_id;
 """
 
 
@@ -125,7 +157,7 @@ def init():
 
 
 def _migrate():
-    """Safe column additions for existing databases."""
+    """Safe column additions and cleanups for existing databases."""
     migrations = [
         "ALTER TABLE factures ADD COLUMN annee INTEGER NOT NULL DEFAULT 2024",
         "ALTER TABLE factures ADD COLUMN mois INTEGER",
@@ -140,6 +172,19 @@ def _migrate():
         except Exception as e:
             if "duplicate column" not in str(e).lower():
                 log.debug("Migration skipped: %s", e)
+
+    # Nettoyage des colonnes lourdes inutiles sur les BD existantes
+    cleanups = [
+        # Vider chemin (fichiers supprimés) et texte_brut (lourd, non nécessaire)
+        "UPDATE factures SET chemin='' WHERE chemin IS NOT NULL AND chemin != ''",
+        "UPDATE factures SET texte_brut='' WHERE texte_brut IS NOT NULL AND texte_brut != ''",
+    ]
+    for sql in cleanups:
+        try:
+            with session() as c:
+                c.execute(sql)
+        except Exception:
+            pass  # colonnes peut-être absentes sur nouvelle BD
 
 
 # ═══════════════ USERS ═══════════════
@@ -277,7 +322,7 @@ def create_facture(uid: int, nom: str, chemin: str, taille: int,
 
 
 def update_facture(fid: int, data: dict):
-    
+    """Met à jour les données extraites. texte_brut et chemin ne sont plus stockés."""
     now = _now()
     with session() as c:
         c.execute(
@@ -285,7 +330,7 @@ def update_facture(fid: int, data: dict):
                fournisseur=?,date_facture=?,ref_facture=?,
                montant_ht=?,tva=?,montant_ttc=?,
                categorie=?,type_facture=?,statut=?,anomalies=?,
-               confiance=?,texte_brut=?,analyse_ia=?,
+               confiance=?,analyse_ia=?,
                updated_at=?
                WHERE id=?""",
             (
@@ -300,7 +345,6 @@ def update_facture(fid: int, data: dict):
                 data.get("statut", "traite"),
                 json.dumps(data.get("anomalies", []), ensure_ascii=False),
                 data.get("confiance", 0),
-                data.get("texte_brut", "")[:5000],
                 data.get("analyse_ia", ""),
                 now, fid,
             )
